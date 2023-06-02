@@ -1,0 +1,79 @@
+#!/bin/bash
+
+# #SBATCH --qos pq_mdegenna
+# #SBATCH --account iacc_mdegenna
+#SBATCH --account acc_mdegenna
+# #SBATCH --partition investor
+
+# Node location
+#SBATCH -p IB_44C_512G
+
+# Number of nodes
+#SBATCH -N 1
+
+# Number of tasks
+#SBATCH -n 16
+
+#SBATCH --output=log
+
+
+##########################################################
+# Setup envrionmental variable. 
+##########################################################
+
+    . $MODULESHOME/../global/profile.modules
+    
+    # here is where you load modules
+    module load miniconda3-4.5.11-gcc-8.2.0-oqs2mbg
+    module load samtools-1.9-gcc-8.2.0-o53igvd 
+    export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+##########################################################
+##########################################################
+
+##########################################################
+# Setup Conda Environment 
+##########################################################
+
+    # source activate virtual_env_name
+    source activate vcflib_env
+
+##########################################################
+##########################################################
+
+DIRECTORY=$(basename "$PWD")
+
+REFERENCE=../../Aedes_Genome_Index/AaegL5.fa
+INPUT=../AaegL5.gatk.vcf.gz
+OUTPUT=AaegL5.gatk.filtered.g.vcf.gz
+
+gatk SelectVariants \
+    -V $INPUT \
+    -select-type SNP \
+    -O snps.vcf.gz
+
+gatk VariantFiltration \
+    -V snps.vcf.gz \
+    -filter "QD < 2.0" --filter-name "QD2" \
+    -filter "MQ < 40.0" --filter-name "MQ40" \
+    -filter "FS > 60.0" --filter-name "FS60" \
+    -filter "SOR > 3.0" --filter-name "SOR3" \
+    -filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
+    -filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+    -O ${OUTPUT}.snp
+
+
+gatk SelectVariants \
+    -V $INPUT \
+    -select-type INDEL \
+    -select-type MIXED \
+    -O indels.vcf.gz
+
+gatk VariantFiltration \
+    -V indels.vcf.gz \
+    -filter "QD < 2.0" --filter-name "QD2" \
+    -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
+    -filter "InbreedingCoeff < -0.8" --filter-name "InbreedingCoeff-8" \
+    -filter "FS > 200.0" --filter-name "FS200" \
+    -filter "SOR > 10.0" --filter-name "SOR10" \
+    -O ${OUTPUT}.indels

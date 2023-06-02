@@ -1,0 +1,22 @@
+#!/bin/bash
+
+echo "Sample num_reads mapped_reads percent_mapped_reads mean_coverage" > Report.csv
+
+for d in */; do
+    cd $d
+    DIRECTORY=$(basename "$PWD")
+    cd ${DIRECTORY}_qualimap
+    # Logic here
+    OUT=$DIRECTORY
+    OUT+=" "
+    OUT+=$(sed "20q;d" genome_results.txt | cut -d "=" -f2 |cut -d " " -f2)
+    OUT+=" "
+    OUT+=$(sed "21q;d" genome_results.txt | cut -d "=" -f2 |cut -d " " -f2)
+    OUT+=" "
+    OUT+="x"
+    OUT+=" "
+    OUT+=$(sed "44q;d" genome_results.txt | cut -d "=" -f2 |cut -d " " -f2)
+    echo $OUT >> /home/data/FLAG/Aae_Completed/Report.csv
+
+    cd /home/data/FLAG/Aae_Completed/
+done

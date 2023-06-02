@@ -1,0 +1,44 @@
+#!/bin/bash
+
+# #SBATCH --qos pq_mdegenna
+# #SBATCH --account iacc_mdegenna
+#SBATCH --account acc_mdegenna
+# #SBATCH --partition investor
+
+# Node location
+#SBATCH -p IB_44C_512G
+
+# Number of nodes
+#SBATCH -N 1
+
+# Number of tasks
+#SBATCH -n 16
+
+#SBATCH --output=log
+
+
+##########################################################
+# Setup envrionmental variable. 
+##########################################################
+
+    . $MODULESHOME/../global/profile.modules
+    module load plink-2.00a2.3LM 
+    export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+##########################################################
+##########################################################
+
+DIRECTORY=$(basename "$PWD")
+VCF=../AaegL5.gatk.filtered.snp.g.vcf.gz
+
+plink2 --vcf $VCF --freq --allow-extra-chr
+
+# perform linkage pruning - i.e. identify prune sites
+plink2 --vcf $VCF --double-id --allow-extra-chr \
+--set-missing-var-ids @:# \
+--indep-pairwise 50 10 0.1 --out aedes_test_gatk
+
+# prune and create pca
+plink2 --vcf $VCF --double-id --allow-extra-chr --set-missing-var-ids @:# \
+--freq --extract aedes_test_gatk.prune.in \
+--make-bed --max-alleles 2 --pca --out aedes_test_gatk --read-freq plink2.afreq

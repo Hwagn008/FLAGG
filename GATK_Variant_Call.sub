@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# #SBATCH --qos pq_mdegenna
+# #SBATCH --account iacc_mdegenna
+#SBATCH --account acc_mdegenna
+# #SBATCH --partition investor
+
+# Node location
+#SBATCH -p IB_44C_512G
+
+# Number of nodes
+#SBATCH -N 1
+
+# Number of tasks
+#SBATCH -n 16
+
+#SBATCH --output=log
+
+
+##########################################################
+# Setup envrionmental variable. 
+##########################################################
+
+    . $MODULESHOME/../global/profile.modules
+    
+    # here is where you load modules
+    module load miniconda3-4.5.11-gcc-8.2.0-oqs2mbg
+
+
+    export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+##########################################################
+##########################################################
+
+##########################################################
+# Setup Conda Environment 
+##########################################################
+
+    # source activate virtual_env_name
+    source activate vcflib_env
+
+##########################################################
+##########################################################
+
+DIRECTORY=$(basename "$PWD")
+
+REFERENCE=../Aedes_Genome_Index/AaegL5.fa
+BED=../Aedes_Genome_Index/AaegL5.fa.bed
+
+#gatk --java-options "-Xmx8g -Xms8g" \
+#    GenomicsDBImport \
+#    --genomicsdb-workspace-path my_database \
+#    --batch-size 50 \
+#    -L $BED \
+#    --sample-name-map VCF_List.txt \
+#    --reader-threads 5
+
+
+ gatk --java-options "-Xmx8g" GenotypeGVCFs \
+   -R $REFERENCE \
+   -V gendb://my_database \
+   -O AaegL5.gatk.vcf.gz
+
+# GATK_FILTERED_DATABASE -> to replace my_database

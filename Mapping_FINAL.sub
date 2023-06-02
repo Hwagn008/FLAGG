@@ -1,0 +1,151 @@
+#!/bin/bash
+
+#SBATCH --qos pq_mdegenna
+#SBATCH --account iacc_mdegenna
+#SBATCH --partition investor
+
+# Node location
+#SBATCH -p IB_44C_512G
+
+# Number of nodes
+#SBATCH -N 1
+
+# Number of tasks
+#SBATCH -n 16
+
+#SBATCH --output=log
+
+
+##########################################################
+# Setup envrionmental variable. 
+##########################################################
+
+    . $MODULESHOME/../global/profile.modules
+    module load trimmomatic-0.36-gcc-8.2.0-siurwco
+    module load bwa-0.7.17-gcc-8.2.0-qgdird7
+    module load samtools-1.9-gcc-4.8.5-k4xquzh
+    module load picard-2.18.3-gcc-8.2.0-gvfnhgl
+    module load jdk-11.0.1-gcc-4.8.5-wclcf7z
+    module load seqtk-1.3
+    module load qualimap-2.2.1
+    module load jdk1.8.0_241
+    export OMP_NUM_THREADS=$SLURM_CPUS_ON_NODE
+
+##########################################################
+##########################################################
+
+# samtools        WORKS
+# bwa             WORKS
+# trimmomatic     WORKS
+# picard          WORKS
+# java            WORKS
+
+# SAVE directory name as variable
+    DIRECTORY=$(basename "$PWD")
+
+# LOOP through n/2 times, where n is the number of fq.gz files in the directory
+    for f in *_1.fastq.gz; do
+        TRIM=${f%???????????}
+        TRIM1=${TRIM}_1.fastq.gz
+        TRIM2=${TRIM}_2.fastq.gz
+        echo $TRIM
+
+
+        # SAVING file name components to variables
+        fileNoExtension=${TRIM}
+        rgid=${fileNoExtension:0:10}.${fileNoExtension:52:11} # DONE
+        rglb=LIB-${DIRECTORY} # DONE
+        rgpu=${fileNoExtension:0:10}.${fileNoExtension:52:11} # DONE
+
+        #########
+        # ONLY FOR TESTING
+            # echo $rgid
+            # echo $rglb
+            # echo $rgpu
+            # sleep 100
+        #########
+
+        bwa mem -t 16 ../../Aedes_MT_Index/LVP_AGWG_MT $TRIM1 $TRIM2 > ${TRIM}.bwa.sam.mt
+
+        samtools view -S -F4 -h ${TRIM}.bwa.sam.mt > ${TRIM}.mapped.sam
+        samtools view -S -f4 -h ${TRIM}.bwa.sam.mt > ${TRIM}.unmapped.sam
+
+        samtools view -S -b ${TRIM}.unmapped.sam > ${TRIM}.unmapped.bam
+        samtools fastq -1 ${TRIM1}.unmapped.mt -2 ${TRIM2}.unmapped.mt -s ${TRIM}.unmapped.singletons.bam -N ${TRIM}.unmapped.bam
+
+        trimmomatic PE -phred33 \
+            ${TRIM1}.unmapped.mt ${TRIM2}.unmapped.mt ${TRIM1}.paired ${TRIM1}.unpaired ${TRIM2}.paired ${TRIM2}.unpaired \
+            ILLUMINACLIP:/scratch/Hwagn008/Trimming_adapters/PolyA.fa:2:3:3 MINLEN:36 \
+            SLIDINGWINDOW:4:25
+
+        bwa mem -t 16 ../../Aedes_Genome_Index/AaegL5 ${TRIM1}.paired ${TRIM2}.paired > ${TRIM}.bwa.sam
+
+        samtools view -S -b ${TRIM}.bwa.sam > ${TRIM}.bwa.sam.bam
+
+        picard AddOrReplaceReadGroups \
+            INPUT=${TRIM}.bwa.sam.bam \
+            OUTPUT=${TRIM}.rg.bam \
+            RGID=$rgid \
+            RGLB=$rglb \
+            RGPL=illumina \
+            RGPU=$rgpu \
+            RGSM=$DIRECTORY
+                # RGID = flowcell number and lane ex: FlowcellBarcode.Lane (For Lane remove the L must only be the int)
+                # RGLB = Library Name, interchangable with sample name as there is one library per sample ex: LIB-CG1-1
+                # RGPL = GATK doesn't provision for BGIseq data but others have used illumina as a substitute
+                # RGPU = read name, ex of format: FlowcellBarcode.SampleBarcode.Lane (For Lane remove the L must only be the int)
+                # RGSM =  Directory name (AKA sample name)
+
+
+            # Example of file name structure:
+            # V300014339_L2_B5GAEDxmwRAAAZAAA-553_2.fq.gz
+            # FlowcellBarcode_Lane_SampleBarcode-readspecificgroupnumber_ForwardorReverse.fq.gz
+
+        # REMOVE temp files
+        rm ${TRIM}.bwa.sam.mt
+        rm ${TRIM}.unmapped.sam
+        rm ${TRIM}.unmapped.bam
+        rm ${TRIM1}.unmapped.mt
+        rm ${TRIM2}.unmapped.mt
+
+        rm ${TRIM1}.paired
+        rm ${TRIM2}.paired
+        rm ${TRIM1}.unpaired
+        rm ${TRIM2}.unpaired
+        rm ${TRIM}.bwa.sam
+        rm ${TRIM}.bwa.sam.bam
+
+    done
+
+# MERGES all files into one
+    bamlist=$(for f in *.rg.bam; do echo -n "I=$f " ; done)
+    picard MergeSamFiles \
+        $bamlist \
+        O=${DIRECTORY}.bam 
+
+    picard MarkDuplicates \
+        VALIDATION_STRINGENCY=LENIENT \
+        TMP_DIR=${DIRECTORY}/tmp_dir/ \
+        I=${DIRECTORY}.bam \
+        O=${DIRECTORY}.marked_duplicates.bam \
+        M=${DIRECTORY}.marked_dup_metrics.txt
+
+    picard SortSam \
+        I=${DIRECTORY}.marked_duplicates.bam \
+        O=${DIRECTORY}.sorted.marked_duplicates.bam \
+        SORT_ORDER=coordinate
+
+# REMOVE temp files
+    rm ${DIRECTORY}.bam
+    rm ${DIRECTORY}.marked_duplicates.bam
+    rm *.rg.bam
+    rm -r $DIRECTORY
+
+# INFORMATION of sample preprocessing
+    samtools flagstat ${DIRECTORY}.sorted.marked_duplicates.bam > flagstat.txt
+    samtools depth ${DIRECTORY}.sorted.marked_duplicates.bam > depth.txt
+    samtools mpileup ${DIRECTORY}.sorted.marked_duplicates.bam > mpileup.txt
+    (samtools mpileup ${DIRECTORY}.sorted.marked_duplicates.bam | ./bam_coverage.pl) > bam_coverage.txt
+
+# Qualimap Mapping Statistics
+    qualimap bamqc -bam ${DIRECTORY}.sorted.marked_duplicates.bam -outdir ${DIRECTORY}_qualimap --java-mem-size=128G
